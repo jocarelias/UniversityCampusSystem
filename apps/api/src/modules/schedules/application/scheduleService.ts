@@ -12,9 +12,8 @@ import type { Actor } from '../../assessments/application/assessmentService.js';
  */
 type ScheduleDb = Prisma.TransactionClient | typeof prisma;
 
-/** Chave do advisory lock de horários (g3/horários: módulo 3). */
-const SCHEDULE_ADVISORY_LOCK_KEY1 = 4711;
-const SCHEDULE_ADVISORY_LOCK_KEY2 = 9901;
+/** Chave do advisory lock dos horários — serializa verificações de sobreposição. */
+const SCHEDULE_ADVISORY_LOCK_KEY = 'class_schedule';
 
 type ScheduleRecord = {
   id: string;
@@ -249,7 +248,7 @@ export async function createSchedule(input: CreateScheduleInput, actor: Actor, c
     // Serializa a verificação de sobreposição com a escrita: sem o lock, duas
     // requisições simultâneas podem ambas passar no findFirst e gravar sessões
     // sobrepostas (race condition read-then-write).
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SCHEDULE_ADVISORY_LOCK_KEY1}::int, ${SCHEDULE_ADVISORY_LOCK_KEY2}::int)`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${SCHEDULE_ADVISORY_LOCK_KEY}))`;
 
     await validateScheduleRefs(tx, input);
 
@@ -307,7 +306,7 @@ export async function updateSchedule(id: string, input: UpdateScheduleInput, act
   }
 
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SCHEDULE_ADVISORY_LOCK_KEY1}::int, ${SCHEDULE_ADVISORY_LOCK_KEY2}::int)`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${SCHEDULE_ADVISORY_LOCK_KEY}))`;
 
     await validateScheduleRefs(tx, {
       subjectId,
